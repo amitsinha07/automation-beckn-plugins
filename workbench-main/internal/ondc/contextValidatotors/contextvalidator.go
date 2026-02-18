@@ -84,8 +84,13 @@ func (cv *Validator) ValidateContext(ctx context.Context, httpRequest *http.Requ
 
 func getNackErrorPayload(message string) map[string]any {
 	return map[string]any{
+		"message": map[string]any{
+			"ack": map[string]any{
+				"status": "NACK",
+			},
+		},
 		"error": map[string]any{
-			"type":    "NACK",
+			"code":    "30001",
 			"message": message,
 		},
 	}
