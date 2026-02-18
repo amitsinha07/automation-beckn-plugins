@@ -1,7 +1,7 @@
 github.com/AsaiYusuke/jsonpath v1.6.0 h1:YagKI8icTdxHujVwsgmL4Cm3DYm36g+ymp9PTMXY67o=
 github.com/AsaiYusuke/jsonpath v1.6.0/go.mod h1:XblL8QLThYDIvcQkFJJXDqfry/XAkMYEIOItWRZtz1s=
-github.com/ONDC-Official/automation-beckn-onix v1.4.0 h1:JpRvy+xv6BmANWgjTbb7Y1cs1yU+YPAObdxiF8kT7qM=
-github.com/ONDC-Official/automation-beckn-onix v1.4.0/go.mod h1:lBRFNN3iwo+UQCq2+r3ZWuBDfNk/gbfXXjalnTUPG5I=
+github.com/ONDC-Official/automation-beckn-onix v1.5.0 h1:wpZzRwFzOxfEAmqh/UiBkwzaTz4XH/IQ6ueBdZrcl+Y=
+github.com/ONDC-Official/automation-beckn-onix v1.5.0/go.mod h1:g/FMlWEfVVx26SZVGiRNBGSVVx6d6GvWRiqB63SK1hQ=
 github.com/ONDC-Official/ondc-crypto-sdk-go v0.2.1 h1:lDLwCmyy5dqzhsPq6XWG2JOonucSkwtQweHEaM/9rZg=
 github.com/ONDC-Official/ondc-crypto-sdk-go v0.2.1/go.mod h1:hll7FvOoMruRuxcqa/eXp53O0TRCMKWC2hzL68CT5QQ=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

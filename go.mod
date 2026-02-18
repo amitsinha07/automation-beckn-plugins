@@ -2,7 +2,7 @@ module github.com/ONDC-Official/automation-beckn-plugins
 
 go 1.25.5
 
-replace github.com/beckn-one/beckn-onix => github.com/ONDC-Official/automation-beckn-onix v1.4.0
+replace github.com/beckn-one/beckn-onix => github.com/ONDC-Official/automation-beckn-onix v1.5.0
 
 replace google.golang.org/protobuf => google.golang.org/protobuf v1.32.0
 
