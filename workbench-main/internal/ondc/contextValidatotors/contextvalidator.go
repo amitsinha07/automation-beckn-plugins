@@ -2,6 +2,7 @@ package contextvalidatotors
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -75,7 +76,8 @@ func (cv *Validator) ValidateContext(ctx context.Context, httpRequest *http.Requ
 		log.Warnf(ctx, "Context validation warning (forward_request=true): %s", result.Error)
 		nack := getNackErrorPayload(result.Error)
 		nackBytes, _ := json.Marshal(nack)
-		httpRequest.AddCookie(&http.Cookie{Name: "custom-response-body", Value: string(nackBytes)})
+		encoded := base64.StdEncoding.EncodeToString(nackBytes)
+		httpRequest.AddCookie(&http.Cookie{Name: "custom-response-body", Value: encoded})
 		return nil
 	}
 	return payloadutils.NewBadRequestNackError(result.Error, payloadRaw["context"])
