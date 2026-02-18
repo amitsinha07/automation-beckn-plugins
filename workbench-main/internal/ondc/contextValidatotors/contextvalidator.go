@@ -90,7 +90,7 @@ func getNackErrorPayload(message string) map[string]any {
 			},
 		},
 		"error": map[string]any{
-			"code":    "30001",
+			"code":    "20009",
 			"message": message,
 		},
 	}
