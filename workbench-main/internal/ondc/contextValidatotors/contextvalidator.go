@@ -172,7 +172,18 @@ func (cv *Validator) validateSyncPath(ctx context.Context, payload apiservice.Pa
 	
 	supported := cv.getSupportedActions(transactionData.LatestAction)
 	if !containsString(supported, subjectAction) {
-		msg := fmt.Sprintf("%s not supported after %s", subjectAction, transactionData.LatestAction)
+		msg:= ""
+		helperMsg := ""
+		if(strings.HasPrefix(subjectAction, "on_")){
+			withoutPrefix := strings.TrimPrefix(subjectAction, "on_")
+			helperMsg = fmt.Sprintf(", if there is <%s> action before this, make sure to ACK it first before sending this <%s> action", withoutPrefix, subjectAction)
+		}
+		if(transactionData.LatestAction == "") {
+			msg = fmt.Sprintf("<%s> not supported as the first action in a transaction", subjectAction)
+		}else{
+			 msg = fmt.Sprintf("<%s> not supported after <%s>", subjectAction, transactionData.LatestAction)
+		}
+		msg+= helperMsg
 		log.Warnf(ctx, "%s", msg)
 		return contextValidationResult{Valid: false, Error: msg, ForwardRequest: false}
 	}
