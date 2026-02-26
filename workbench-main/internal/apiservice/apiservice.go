@@ -50,6 +50,8 @@ type PayloadEnvelope struct {
 		TTL	   string `json:"ttl,omitempty"`
 		MessageID   string `json:"message_id,omitempty"`
 		Timestamp   string `json:"timestamp,omitempty"`
+		Version     string `json:"version,omitempty"`
+		CoreVersion string `json:"core_version,omitempty"`
 	}
 }
 

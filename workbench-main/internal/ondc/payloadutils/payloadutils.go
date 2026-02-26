@@ -133,3 +133,23 @@ func NewBadRequestHTTPError(msg string) error {
 func NewPreconditionFailedHTTPError(msg string) error {
 	return model.NewWorkbenchErr("PRECONDITION_FAILED",msg, "HTTP",nil)
 }
+
+func NewAckObject(ondcContext any) map[string]any{
+	if(ondcContext == nil){
+		return map[string]any{
+			"message": map[string]any{
+				"ack": map[string]any{
+					"status": "ACK",
+				},
+			},
+		}
+	}
+	return map[string]any{
+		"message": map[string]any{
+			"ack": map[string]any{
+				"status": "ACK",
+			},
+		},
+		"context": ondcContext,
+	}
+}

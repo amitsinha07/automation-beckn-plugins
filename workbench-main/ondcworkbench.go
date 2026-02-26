@@ -2,6 +2,8 @@ package ondcworkbench
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -161,6 +163,24 @@ func (w *ondcWorkbench) WorkbenchValidateContext(ctx context.Context,request *ht
 		log.Errorf(ctx, err, "context validation failed")
 		return err
 	}
+
+	version:= payloadEnv.Context.Version
+	if(version == "" ){
+		version = payloadEnv.Context.CoreVersion
+	}
+
+	customResponse := map[string]interface{}{}
+	if(strings.HasPrefix(version,"1")){
+		customResponse = payloadutils.NewAckObject(raw["context"])
+	}else{
+		customResponse = payloadutils.NewAckObject(nil)
+	}
+	customBytes, _ := json.Marshal(customResponse)
+	encoded := base64.StdEncoding.EncodeToString(customBytes)
+	request.AddCookie(&http.Cookie{
+		Name:  "custom-response-body",
+		Value: encoded,
+	})
 	return nil
 }
 
