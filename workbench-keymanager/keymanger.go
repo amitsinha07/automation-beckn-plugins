@@ -119,6 +119,7 @@ func (k *KeyMgr) LookupNPKeys(ctx context.Context, subscriberID string, uniqueKe
 
 	var lookupResponse []struct {
 		SigningPublicKey string `json:"signing_public_key"`
+		EncrPublicKey   string `json:"encr_public_key"`
 	}
 
 	if err := json.Unmarshal(respBody, &lookupResponse); err != nil {
@@ -129,7 +130,7 @@ func (k *KeyMgr) LookupNPKeys(ctx context.Context, subscriberID string, uniqueKe
 		return "", "", fmt.Errorf("no lookup results found for subscriber_id: %s, ukId: %s", subscriberID, uniqueKeyID)
 	}
 
-	return lookupResponse[0].SigningPublicKey, "", nil
+	return lookupResponse[0].SigningPublicKey, lookupResponse[0].EncrPublicKey, nil
 }
 
 func (k *KeyMgr) createAuthorizationHeader(body string) (string, error) {
@@ -199,4 +200,11 @@ func NewEnv() *Env {
 	}
 
 	return &env
+}
+
+// GetEncrPrivateKey exposes the workbench's own encryption private key.
+// Used by encryption middleware plugins so they can derive the shared AES key
+// without needing the host to inject a KeyManager instance.
+func (k *KeyMgr) GetEncrPrivateKey() string {
+	return k.env.EncrPrivate
 }

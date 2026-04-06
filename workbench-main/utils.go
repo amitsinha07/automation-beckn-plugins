@@ -81,6 +81,10 @@ func setRequestCookies(requestData *apiservice.WorkbenchRequestData) error {
 		Value: getBooleanString(requestData.Difficulty.UseGzip),
 	})
 	httpReq.AddCookie(&http.Cookie{
+		Name: "encryption_validation",
+		Value: getBooleanString(requestData.Difficulty.EncryptionValidation),
+	})
+	httpReq.AddCookie(&http.Cookie{
 		Name: "request_owner",
 		Value: string(requestData.RequestOwner),
 	})
