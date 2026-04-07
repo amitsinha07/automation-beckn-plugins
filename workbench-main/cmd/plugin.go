@@ -31,18 +31,20 @@ func (w *workbenchProvider) New(ctx context.Context,cache definition.Cache,confi
 	}
 
 	configServiceURL := config["configServiceURL"]
+	transactionPropertiesPath := config["transactionPropertiesPath"]
 
-	if(configServiceURL == ""){
-		return nil,nil, fmt.Errorf("configServiceURL cannot be empty")
+	if transactionPropertiesPath == "" && configServiceURL == "" {
+		return nil, nil, fmt.Errorf("either transactionPropertiesPath or configServiceURL must be provided")
 	}
 
-	return ondcworkbench.New(ctx,cache,&ondcworkbench.Config{
-		ProtocolVersion: protocolVersion,
-		ProtocolDomain: protocolDomain,
-		ModuleRole: ModuleRole,
-		ModuleType: ModuleType,
-		ConfigServiceURL: configServiceURL,
-		MockServiceURL: mockServiceURL,
+	return ondcworkbench.New(ctx, cache, &ondcworkbench.Config{
+		ProtocolVersion:           protocolVersion,
+		ProtocolDomain:            protocolDomain,
+		ModuleRole:                ModuleRole,
+		ModuleType:                ModuleType,
+		ConfigServiceURL:          configServiceURL,
+		MockServiceURL:            mockServiceURL,
+		TransactionPropertiesPath: transactionPropertiesPath,
 	})
 }
 // Provider is the exported provider instance for the Workbench plugin

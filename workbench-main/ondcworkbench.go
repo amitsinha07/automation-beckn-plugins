@@ -22,14 +22,15 @@ import (
 )
 
 type Config struct {
-	RegistryURL	 string
-	ProtocolVersion   string
-	ProtocolDomain   string
-	ModuleRole string // BAP or BPP
-	ModuleType string // caller or receiver
-	ConfigServiceURL string
-	MockServiceURL  string
-	TransactionProperties apiservice.TransactionProperties
+	RegistryURL	            string
+	ProtocolVersion           string
+	ProtocolDomain            string
+	ModuleRole                string // BAP or BPP
+	ModuleType                string // caller or receiver
+	ConfigServiceURL          string
+	MockServiceURL            string
+	TransactionPropertiesPath string // optional: load TransactionProperties from a JSON/YAML file instead of config service
+	TransactionProperties     apiservice.TransactionProperties
 }
 
 type ondcWorkbench struct {
@@ -54,14 +55,13 @@ func New(ctx context.Context, cache definition.Cache, config *Config) (definitio
 		return nil, nil, configErr
 	}
 
-	transactionProperties, txnPropErr := getTransactionPropertiesFromConfigService(ctx,config.ConfigServiceURL,config.ProtocolDomain,config.ProtocolVersion)
-
-	if(txnPropErr != nil){
-		return nil, nil, fmt.Errorf("failed to get transaction properties from config service: %v",txnPropErr)
+	transactionProperties, txnPropErr := loadTransactionProperties(ctx, config)
+	if txnPropErr != nil {
+		return nil, nil, txnPropErr
 	}
 
 	config.TransactionProperties = transactionProperties
-	log.Infof(ctx,"transaction properties loaded from config service: %#+v",transactionProperties)
+	log.Infof(ctx, "transaction properties loaded: %#+v", transactionProperties)
 	
 	txnCache := &transactioncache.Service{
 		Cache: cache,

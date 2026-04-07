@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/ONDC-Official/automation-beckn-plugins/workbench-main/internal/ondc/payloadutils"
 	"github.com/beckn-one/beckn-onix/pkg/log"
 	"github.com/rickb777/date/period"
+	"gopkg.in/yaml.v3"
 )
 
 
@@ -121,6 +124,56 @@ func getBooleanString(value bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+// loadTransactionProperties loads TransactionProperties from a file if TransactionPropertiesPath
+// is set, otherwise falls back to fetching from the config service.
+func loadTransactionProperties(ctx context.Context, config *Config) (apiservice.TransactionProperties, error) {
+	if config.TransactionPropertiesPath != "" {
+		props, err := loadTransactionPropertiesFromFile(config.TransactionPropertiesPath)
+		if err != nil {
+			return apiservice.TransactionProperties{}, fmt.Errorf("failed to load transaction properties from file: %w", err)
+		}
+		log.Infof(ctx, "transaction properties loaded from file: %s", config.TransactionPropertiesPath)
+		return props, nil
+	}
+	props, err := getTransactionPropertiesFromConfigService(ctx, config.ConfigServiceURL, config.ProtocolDomain, config.ProtocolVersion)
+	if err != nil {
+		return apiservice.TransactionProperties{}, fmt.Errorf("failed to get transaction properties from config service: %w", err)
+	}
+	return props, nil
+}
+
+// loadTransactionPropertiesFromFile reads TransactionProperties from a JSON or YAML file.
+// The format is detected by file extension; files without a .json extension are treated as YAML.
+func loadTransactionPropertiesFromFile(filePath string) (apiservice.TransactionProperties, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return apiservice.TransactionProperties{}, fmt.Errorf("error reading file at %s: %w", filePath, err)
+	}
+
+	var props apiservice.TransactionProperties
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".json":
+		if err := json.Unmarshal(data, &props); err != nil {
+			return apiservice.TransactionProperties{}, fmt.Errorf("failed to parse JSON: %w", err)
+		}
+	default: // treat as YAML
+		if err := yaml.Unmarshal(data, &props); err != nil {
+			return apiservice.TransactionProperties{}, fmt.Errorf("failed to parse YAML: %w", err)
+		}
+	}
+
+	if props.SupportedActions == nil {
+		props.SupportedActions = map[string][]string{}
+	}
+	if props.APIProperties == nil {
+		props.APIProperties = map[string]apiservice.ActionProperties{}
+	}
+	if len(props.APIProperties) == 0 {
+		return apiservice.TransactionProperties{}, fmt.Errorf("file %s has empty apiProperties", filePath)
+	}
+	return props, nil
 }
 
 func getTransactionPropertiesFromConfigService(ctx context.Context, configServiceURL, protocolDomain, protocolVersion string) (apiservice.TransactionProperties, error) {
