@@ -223,19 +223,18 @@ to point to your local Recorder Service.
 4. Reproduce locally and debug using logs and breakpoints.
 
     ### TIPS TO KEEP IN MIND
-
     - Always verify the **context** of the subject payload is correct and only proceed with further debugging if the context is correct.
-    - before running the flows make sure /test endpoint is working fine by sending a sample payload. 
+    - before running the flows make sure /test endpoint is working fine by sending a sample payload.
 
 ## FAQs
 
 Use this section as a quick placeholder for common operational questions. Replace each placeholder answer as needed.
 
 1. **Where can I view logs and inspect cache for troubleshooting?**
-    - ONIX logs are available in Dozzle 
+    - ONIX logs are available in Dozzle
     - in ec2 docker logs can be viewed using `docker logs <container_id>`
 
-2. **I am getting {action} not supported after {action} nack message** 
+2. **I am getting {action} not supported after {action} nack message**
     - This is config loaded from config-service (supported actions) on start up only once and is not updated or reloaded until the server is restarted. Please check if the config in config-service is correct and restart the server to load the latest config.
     - On Startup this config is printed in logs with log message. Please check logs for the same and verify if the config is correct.
 
