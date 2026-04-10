@@ -94,6 +94,7 @@ func (m *EncryptionMiddleware) handler(next http.Handler) http.Handler {
 		}
 
 		log.Infof(ctx, "encryption-middleware: decryption successful, forwarding plain JSON to signvalidator")
+		log.Infof(ctx, "encryption-middleware: decrypted plaintext: %s", decrypted)
 
 		// 5. Replace request body with decrypted plaintext JSON
 		decryptedBytes := []byte(decrypted)

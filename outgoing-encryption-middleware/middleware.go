@@ -123,6 +123,8 @@ func (m *OutgoingEncryptionMiddleware) handler(next http.Handler) http.Handler {
 
 		log.Infof(ctx, "outgoing-encryption-middleware: body encrypted (%d bytes), Auth header preserved; forwarding to router",
 			len(encryptedBytes))
+		log.Infof(ctx, "outgoing-encryption-middleware: outgoing plaintext was: %s", string(bodyBytes))
+		log.Infof(ctx, "outgoing-encryption-middleware: outgoing ciphertext: %s", encryptedString)
 
 		// Forward to Router — sends encrypted body with Auth header signed over plaintext
 		next.ServeHTTP(w, r)
