@@ -1,8 +1,8 @@
-package encryptionmiddleware
+package outgoingencryptionmiddleware
 
 import (
 	"bytes"
-	"encoding/base64"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,143 +12,177 @@ import (
 	cryptoutil "github.com/ONDC-Official/automation-beckn-plugins/pkg/crypto_util"
 	keymanager "github.com/ONDC-Official/automation-beckn-plugins/workbench-keymanager"
 	"github.com/beckn-one/beckn-onix/pkg/log"
-	"context"
 )
 
-// EncryptionMiddleware decrypts incoming encrypted payloads BEFORE signvalidator runs.
-// The signvalidator then naturally validates the Authorization header against the
-// decrypted plaintext JSON — no changes to signvalidator are needed.
-type EncryptionMiddleware struct {
+// OutgoingEncryptionTransport encrypts the outgoing request body AFTER the Signer plugin
+// has already signed the plaintext and set the Authorization header.
+//
+// It implements http.RoundTripper (TransportWrapper pattern) so it runs at the very last
+// moment — after ALL pipeline steps (including `sign`) have executed and
+// all session cookies (including encryption_validation) are set on the request.
+//
+// Flow in the plugin chain (Caller / outgoing direction):
+//
+//	ondcWorkbenchReceiver (sets cookies) → sign (sets Auth header)
+//	  → [http.Client.Do] → TransportWrapper.RoundTrip
+//	     → OutgoingEncryptionTransport (encrypts body) → base.RoundTrip → external NP
+//
+// The external NP receives:
+//   - Body: AES-256-GCM ciphertext (base64 encoded EncryptedPayload JSON)
+//   - Authorization header: signed over the original plaintext JSON
+//
+// External NP verification:
+//  1. Decrypt body → get plaintext JSON
+//  2. Verify Authorization header against the decrypted plaintext ✓
+type OutgoingEncryptionTransport struct {
+	base   http.RoundTripper
 	keyMgr *keymanager.KeyMgr
 }
 
-// New creates the incoming decryption middleware.
-// KeyMgr is instantiated internally using the same .env / viper environment
-// as the keymanager plugin — no host injection needed.
-func New(ctx context.Context) (func(http.Handler) http.Handler, error) {
+// OutgoingEncryptionWrapper implements definition.TransportWrapper.
+type OutgoingEncryptionWrapper struct {
+	keyMgr *keymanager.KeyMgr
+}
+
+// New creates the outgoing encryption transport wrapper.
+func New(ctx context.Context) (*OutgoingEncryptionWrapper, func(), error) {
 	mgr, _, err := keymanager.New(ctx, nil, nil, &keymanager.Config{})
 	if err != nil {
-		return nil, fmt.Errorf("encryption-middleware: failed to init key manager: %w", err)
+		return nil, nil, fmt.Errorf("outgoing-encryption-middleware: failed to init key manager: %w", err)
 	}
-	m := &EncryptionMiddleware{keyMgr: mgr}
-	return m.handler, nil
+	return &OutgoingEncryptionWrapper{keyMgr: mgr}, nil, nil
 }
 
-func (m *EncryptionMiddleware) handler(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Errorf(ctx, err, "encryption-middleware: failed to read request body")
-			http.Error(w, "failed to read request body", http.StatusInternalServerError)
-			return
-		}
-		// Always restore body so downstream reads work regardless of path taken.
-		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-		if !isEncryptedPayload(bodyBytes) {
-			// Plain JSON — pass through unchanged to signvalidator
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		log.Infof(ctx, "encryption-middleware: encrypted payload detected, decrypting before signvalidator")
-
-		// 1. Parse Authorization header to identify the sender NP
-		subscriberID, ukId, parseErr := parseAuthHeader(r.Header.Get("Authorization"))
-		if parseErr != nil {
-			log.Errorf(ctx, parseErr, "encryption-middleware: failed to parse Authorization header")
-			http.Error(w, "invalid Authorization header", http.StatusBadRequest)
-			return
-		}
-
-		// 2. Fetch sender's encryption public key from ONDC registry
-		_, encrPubKey, lookupErr := m.keyMgr.LookupNPKeys(ctx, subscriberID, ukId)
-		if lookupErr != nil {
-			log.Errorf(ctx, lookupErr, "encryption-middleware: registry lookup failed for subscriber %s", subscriberID)
-			http.Error(w, "failed to lookup NP encryption key", http.StatusInternalServerError)
-			return
-		}
-		if encrPubKey == "" {
-			log.Errorf(ctx, fmt.Errorf("empty encr_public_key for %s", subscriberID),
-				"encryption-middleware: registry returned no encryption public key")
-			http.Error(w, "NP encryption key not found in registry", http.StatusInternalServerError)
-			return
-		}
-
-		// 3. Derive shared AES key: workbench EncrPrivate + sender's EncrPublic
-		sharedKey, skErr := cryptoutil.GenerateSharedKey(m.keyMgr.GetEncrPrivateKey(), encrPubKey)
-		if skErr != nil {
-			log.Errorf(ctx, skErr, "encryption-middleware: failed to generate shared key")
-			http.Error(w, "failed to generate shared key", http.StatusInternalServerError)
-			return
-		}
-
-		// 4. Decrypt the payload
-		decrypted, decErr := cryptoutil.DecryptData(sharedKey, strings.TrimSpace(string(bodyBytes)))
-		if decErr != nil {
-			log.Errorf(ctx, decErr, "encryption-middleware: decryption failed")
-			http.Error(w, "failed to decrypt payload", http.StatusBadRequest)
-			return
-		}
-
-		log.Infof(ctx, "encryption-middleware: decryption successful, forwarding plain JSON to signvalidator")
-		log.Infof(ctx, "encryption-middleware: decrypted plaintext: %s", decrypted)
-
-		// 5. Replace request body with decrypted plaintext JSON
-		decryptedBytes := []byte(decrypted)
-		r.Body = io.NopCloser(bytes.NewBuffer(decryptedBytes))
-		r.ContentLength = int64(len(decryptedBytes))
-
-		// Forward — signvalidator now sees plain JSON and validates Auth header against it
-		next.ServeHTTP(w, r)
-	})
+// Wrap implements definition.TransportWrapper.
+func (w *OutgoingEncryptionWrapper) Wrap(base http.RoundTripper) http.RoundTripper {
+	return &OutgoingEncryptionTransport{
+		base:   base,
+		keyMgr: w.keyMgr,
+	}
 }
 
-// isEncryptedPayload returns true when the body is a base64 string whose decoded JSON
-// contains the keys encrypted_data, hmac, and nonce — matching the EncryptedPayload struct.
-func isEncryptedPayload(body []byte) bool {
-	trimmed := strings.TrimSpace(string(body))
-	if len(trimmed) == 0 {
-		return false
+// becknContext is used to extract domain and subscriber info from the outgoing ONDC payload.
+type becknContext struct {
+	Context struct {
+		Domain string `json:"domain"`
+		BppID  string `json:"bpp_id"`
+		BapID  string `json:"bap_id"`
+	} `json:"context"`
+}
+
+// RoundTrip intercepts the outbound HTTP call, encrypts the body if required, then delegates.
+func (t *OutgoingEncryptionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	decoded, err := base64.StdEncoding.DecodeString(trimmed)
+
+	// Log all cookies present in the request for debugging difficulty flags.
+	// At this point (TransportWrapper), all pipeline steps have run and cookies are set.
+	allCookies := req.Cookies()
+	if len(allCookies) == 0 {
+		log.Infof(ctx, "outgoing-encryption-middleware: no cookies present in request")
+	} else {
+		for _, c := range allCookies {
+			log.Infof(ctx, "outgoing-encryption-middleware: cookie [%s] = [%s]", c.Name, c.Value)
+		}
+	}
+
+	// Check the encryption_validation cookie — set by WorkbenchReceiver (utils.go).
+	encValidationCookie, cookieErr := req.Cookie("encryption_validation")
+	if cookieErr != nil {
+		log.Infof(ctx, "outgoing-encryption-middleware: encryption_validation cookie missing or error: %v — skipping encryption", cookieErr)
+		return t.base.RoundTrip(req)
+	}
+	log.Infof(ctx, "outgoing-encryption-middleware: encryption_validation cookie value: %s", encValidationCookie.Value)
+
+	if encValidationCookie.Value != "true" {
+		return t.base.RoundTrip(req)
+	}
+
+	log.Infof(ctx, "outgoing-encryption-middleware: encryption_validation=true, encrypting body after signing")
+
+	// Read the body — at this point the Signer has already signed the plaintext body
+	// and written the Authorization header. The body is still the plaintext JSON.
+	bodyBytes, err := io.ReadAll(req.Body)
 	if err != nil {
-		return false
+		log.Errorf(ctx, err, "outgoing-encryption-middleware: failed to read body")
+		return nil, fmt.Errorf("outgoing-encryption-middleware: failed to read request body: %w", err)
 	}
-	var check map[string]any
-	if err := json.Unmarshal(decoded, &check); err != nil {
-		return false
-	}
-	_, hasData := check["encrypted_data"]
-	_, hasHmac := check["hmac"]
-	_, hasNonce := check["nonce"]
-	return hasData && hasHmac && hasNonce
-}
+	// Restore body so base transport can re-read if needed (will be replaced below).
+	req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-// parseAuthHeader extracts subscriber_id and ukId from the ONDC Authorization header.
-// Header format: Signature keyId="{subscriber_id}|{unique_key_id}|{algo}",algorithm="...",...
-func parseAuthHeader(authHeader string) (subscriberID, ukId string, err error) {
-	if authHeader == "" {
-		return "", "", fmt.Errorf("Authorization header is empty")
+	// Extract context.domain and target NP subscriber ID from the outgoing ONDC payload body.
+	// For outgoing encryption we need the RECEIVER's encr_public_key, not our own.
+	// The receiver is context.bpp_id (when caller is BAP sending to BPP).
+	var payload becknContext
+	if jsonErr := json.Unmarshal(bodyBytes, &payload); jsonErr != nil {
+		log.Errorf(ctx, jsonErr, "outgoing-encryption-middleware: failed to parse request body for domain")
+		return nil, fmt.Errorf("outgoing-encryption-middleware: failed to parse request body: %w", jsonErr)
 	}
-	authHeader = strings.TrimPrefix(authHeader, "Signature ")
-	parts := strings.Split(authHeader, ",")
-	for _, part := range parts {
-		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		if strings.TrimSpace(kv[0]) == "keyId" {
-			// Value is wrapped in quotes: "subscriber_id|ukid|algo"
-			keyIdValue := strings.Trim(kv[1], "\"")
-			segments := strings.SplitN(keyIdValue, "|", 3)
-			if len(segments) < 2 {
-				return "", "", fmt.Errorf("malformed keyId in Authorization header: %s", keyIdValue)
-			}
-			return segments[0], segments[1], nil
-		}
+	domain := strings.TrimSpace(payload.Context.Domain)
+	if domain == "" {
+		log.Errorf(ctx, fmt.Errorf("context.domain is empty in request body"),
+			"outgoing-encryption-middleware: cannot determine domain for registry lookup")
+		return nil, fmt.Errorf("outgoing-encryption-middleware: context.domain is empty in request body")
 	}
-	return "", "", fmt.Errorf("keyId not found in Authorization header")
+
+	// Use bpp_id as the target subscriber ID (mockTxnCaller is BAP, sends to BPP).
+	// Fall back to bap_id if bpp_id is not present (e.g. reverse direction).
+	subscriberID := strings.TrimSpace(payload.Context.BppID)
+	if subscriberID == "" {
+		subscriberID = strings.TrimSpace(payload.Context.BapID)
+	}
+	if subscriberID == "" {
+		// Last resort: use subscriber_id cookie (our own ID)
+		subscriberCookie, subErr := req.Cookie("subscriber_id")
+		if subErr != nil || strings.TrimSpace(subscriberCookie.Value) == "" {
+			return nil, fmt.Errorf("outgoing-encryption-middleware: cannot determine target NP subscriber ID (bpp_id/bap_id empty and no cookie)")
+		}
+		subscriberID = subscriberCookie.Value
+		log.Infof(ctx, "outgoing-encryption-middleware: bpp_id/bap_id not in body, falling back to cookie subscriber_id=%s", subscriberID)
+	}
+	log.Infof(ctx, "outgoing-encryption-middleware: using subscriber_id=%s (target NP) domain=%s for registry lookup", subscriberID, domain)
+
+	// 1. Fetch target NP's encryption public key from ONDC registry using domain lookup.
+	signPubKey, encrPubKey, lookupErr := t.keyMgr.LookupNPKeysByDomain(ctx, subscriberID, domain)
+	if lookupErr != nil {
+		log.Errorf(ctx, lookupErr,
+			"outgoing-encryption-middleware: registry lookup failed for %s", subscriberID)
+		return nil, fmt.Errorf("outgoing-encryption-middleware: registry lookup failed for %s: %w", subscriberID, lookupErr)
+	}
+	log.Infof(ctx, "outgoing-encryption-middleware: retrieved sign public key from lookup: %s", signPubKey)
+	log.Infof(ctx, "outgoing-encryption-middleware: retrieved encryption public key from lookup: %s", encrPubKey)
+
+	if encrPubKey == "" {
+		log.Errorf(ctx, fmt.Errorf("empty encr_public_key for %s", subscriberID),
+			"outgoing-encryption-middleware: target NP has no encryption key in registry")
+		return nil, fmt.Errorf("outgoing-encryption-middleware: target NP encryption key not found in registry for %s", subscriberID)
+	}
+
+	// 2. Derive shared AES key: workbench EncrPrivate + target NP's EncrPublic
+	sharedKey, skErr := cryptoutil.GenerateSharedKey(t.keyMgr.GetEncrPrivateKey(), encrPubKey)
+	if skErr != nil {
+		log.Errorf(ctx, skErr, "outgoing-encryption-middleware: failed to generate shared key")
+		return nil, fmt.Errorf("outgoing-encryption-middleware: failed to generate shared key: %w", skErr)
+	}
+
+	// 3. Encrypt the signed plaintext body.
+	// Authorization header is NOT modified — external NP decrypts body first, then verifies Auth.
+	encryptedString, encErr := cryptoutil.EncryptData(sharedKey, string(bodyBytes))
+	if encErr != nil {
+		log.Errorf(ctx, encErr, "outgoing-encryption-middleware: encryption failed")
+		return nil, fmt.Errorf("outgoing-encryption-middleware: encryption failed: %w", encErr)
+	}
+
+	encryptedBytes := []byte(encryptedString)
+	req.Body = io.NopCloser(bytes.NewBuffer(encryptedBytes))
+	req.ContentLength = int64(len(encryptedBytes))
+
+	log.Infof(ctx, "outgoing-encryption-middleware: body encrypted (%d bytes), Auth header preserved; forwarding to external NP",
+		len(encryptedBytes))
+	log.Infof(ctx, "outgoing-encryption-middleware: outgoing plaintext was: %s", string(bodyBytes))
+	log.Infof(ctx, "outgoing-encryption-middleware: outgoing ciphertext: %s", encryptedString)
+
+	return t.base.RoundTrip(req)
 }
