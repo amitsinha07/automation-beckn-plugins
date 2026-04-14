@@ -223,10 +223,10 @@ func (k *KeyMgr) createAuthorizationHeader(body string) (string, error) {
 
 func (e *Env) getRegistryURL() string {
 	// Use IN_HOUSE_REGISTRY URL as specified
-	registryURL := "https://preprod.registry.ondc.org/v2.0/"
-	if customURL := viper.GetString("IN_HOUSE_REGISTRY"); customURL != "" {
-		registryURL = customURL
-	}
+	registryURL := "https://staging.registry.ondc.org/v2.0/"
+	// if customURL := viper.GetString("IN_HOUSE_REGISTRY"); customURL != "" {
+	// 	registryURL = customURL
+	// }
 	return registryURL
 }
 
