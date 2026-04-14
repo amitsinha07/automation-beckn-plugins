@@ -65,6 +65,7 @@ func (w *OutgoingEncryptionWrapper) Wrap(base http.RoundTripper) http.RoundTripp
 type becknContext struct {
 	Context struct {
 		Domain string `json:"domain"`
+		Action string `json:"action"`
 		BppID  string `json:"bpp_id"`
 		BapID  string `json:"bap_id"`
 	} `json:"context"`
@@ -127,22 +128,24 @@ func (t *OutgoingEncryptionTransport) RoundTrip(req *http.Request) (*http.Respon
 		return nil, fmt.Errorf("outgoing-encryption-middleware: context.domain is empty in request body")
 	}
 
-	// Use bpp_id as the target subscriber ID (mockTxnCaller is BAP, sends to BPP).
-	// Fall back to bap_id if bpp_id is not present (e.g. reverse direction).
-	subscriberID := strings.TrimSpace(payload.Context.BppID)
-	if subscriberID == "" {
+	// Determine subscriber ID for registry lookup based on action type:
+	//   action APIs  (search, select, init, confirm, ...) → use bap_id
+	//   on_action APIs (on_search, on_select, on_init, ...) → use bpp_id
+	action := strings.TrimSpace(payload.Context.Action)
+	var subscriberID string
+	if strings.HasPrefix(action, "on_") {
+		subscriberID = strings.TrimSpace(payload.Context.BppID)
+		log.Infof(ctx, "outgoing-encryption-middleware: on_action=%s → using bpp_id=%s for registry lookup", action, subscriberID)
+	} else {
 		subscriberID = strings.TrimSpace(payload.Context.BapID)
+		log.Infof(ctx, "outgoing-encryption-middleware: action=%s → using bap_id=%s for registry lookup", action, subscriberID)
 	}
+
 	if subscriberID == "" {
-		// Last resort: use subscriber_id cookie (our own ID)
-		subscriberCookie, subErr := req.Cookie("subscriber_id")
-		if subErr != nil || strings.TrimSpace(subscriberCookie.Value) == "" {
-			return nil, fmt.Errorf("outgoing-encryption-middleware: cannot determine target NP subscriber ID (bpp_id/bap_id empty and no cookie)")
-		}
-		subscriberID = subscriberCookie.Value
-		log.Infof(ctx, "outgoing-encryption-middleware: bpp_id/bap_id not in body, falling back to cookie subscriber_id=%s", subscriberID)
+		log.Infof(ctx, "outgoing-encryption-middleware: subscriber ID empty for action=%s — skipping encryption", action)
+		return t.base.RoundTrip(req)
 	}
-	log.Infof(ctx, "outgoing-encryption-middleware: using subscriber_id=%s (target NP) domain=%s for registry lookup", subscriberID, domain)
+	log.Infof(ctx, "outgoing-encryption-middleware: using subscriber_id=%s domain=%s for registry lookup", subscriberID, domain)
 
 	// 1. Fetch target NP's encryption public key from ONDC registry using domain lookup.
 	signPubKey, encrPubKey, lookupErr := t.keyMgr.LookupNPKeysByDomain(ctx, subscriberID, domain)
