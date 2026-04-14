@@ -117,6 +117,10 @@ func (k *KeyMgr) LookupNPKeys(ctx context.Context, subscriberID string, uniqueKe
 		return "", "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	// Log the raw response for debugging
+	fmt.Printf("[LookupNPKeys] registry URL: %s | subscriber_id: %s | ukId: %s | raw response: %s\n",
+		lookupURL, subscriberID, uniqueKeyID, string(respBody))
+
 	var lookupResponse []struct {
 		SigningPublicKey string `json:"signing_public_key"`
 		EncrPublicKey   string `json:"encr_public_key"`
@@ -128,6 +132,77 @@ func (k *KeyMgr) LookupNPKeys(ctx context.Context, subscriberID string, uniqueKe
 
 	if len(lookupResponse) == 0 {
 		return "", "", fmt.Errorf("no lookup results found for subscriber_id: %s, ukId: %s", subscriberID, uniqueKeyID)
+	}
+
+	return lookupResponse[0].SigningPublicKey, lookupResponse[0].EncrPublicKey, nil
+}
+
+// LookupNPKeysByDomain looks up NP signing and encryption public keys from the ONDC registry
+// using subscriber_id + domain (instead of ukId).
+// Used by the outgoing-encryption-middleware where ukId is not known for the counterparty.
+func (k *KeyMgr) LookupNPKeysByDomain(ctx context.Context, subscriberID string, domain string) (signingPublicKey string, encrPublicKey string, err error) {
+	// Prepare lookup request body using domain instead of ukId
+	requestBody := map[string]string{
+		"subscriber_id": subscriberID,
+		"domain":        domain,
+	}
+
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Create authorization header using ONDC crypto SDK
+	authHeader, err := k.createAuthorizationHeader(string(bodyBytes))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create authorization header: %w", err)
+	}
+
+	// Perform lookup request
+	registryURL := k.env.getRegistryURL()
+	lookupURL := registryURL + "lookup"
+
+	req, err := http.NewRequestWithContext(ctx, "POST", lookupURL, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", authHeader)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to perform lookup request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("lookup request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log the raw response for debugging
+	fmt.Printf("[LookupNPKeysByDomain] registry URL: %s | subscriber_id: %s | domain: %s | raw response: %s\n",
+		lookupURL, subscriberID, domain, string(respBody))
+
+	var lookupResponse []struct {
+		SigningPublicKey string `json:"signing_public_key"`
+		EncrPublicKey   string `json:"encr_public_key"`
+	}
+
+	if err := json.Unmarshal(respBody, &lookupResponse); err != nil {
+		return "", "", fmt.Errorf("failed to unmarshal response: %w — raw: %s", err, string(respBody))
+	}
+
+	if len(lookupResponse) == 0 {
+		return "", "", fmt.Errorf("no lookup results found for subscriber_id: %s, domain: %s", subscriberID, domain)
 	}
 
 	return lookupResponse[0].SigningPublicKey, lookupResponse[0].EncrPublicKey, nil

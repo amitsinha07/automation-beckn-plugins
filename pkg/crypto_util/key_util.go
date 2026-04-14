@@ -44,10 +44,13 @@ func GenerateKeyPair() (KeyPair, error) {
 
 // GenerateSharedKey Generates a shared key via X25519 diffie-hellman
 func GenerateSharedKey(privateKeyString, publicKeyString string) (string, error) {
-	// Decode private key
+	// Decode private key — try standard encoding first, fall back to raw (no padding)
 	privateKeyBytes, err := base64.StdEncoding.DecodeString(privateKeyString)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode private key base64: %w", err)
+		privateKeyBytes, err = base64.RawStdEncoding.DecodeString(privateKeyString)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode private key base64: %w", err)
+		}
 	}
 
 	// Parse PKCS#8 private key
@@ -60,10 +63,14 @@ func GenerateSharedKey(privateKeyString, publicKeyString string) (string, error)
 		return "", fmt.Errorf("parsed private key is not of type *ecdh.PrivateKey")
 	}
 
-	// Decode public key
+	// Decode public key — try standard encoding first, fall back to raw (no padding)
+	// Registry may return keys without trailing = padding
 	publicKeyBytes, err := base64.StdEncoding.DecodeString(publicKeyString)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode public key base64: %w", err)
+		publicKeyBytes, err = base64.RawStdEncoding.DecodeString(publicKeyString)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode public key base64: %w", err)
+		}
 	}
 
 	// Parse SPKI public key

@@ -10,7 +10,7 @@ replace golang.org/x/sys => golang.org/x/sys v0.38.0
 
 replace golang.org/x/text => golang.org/x/text v0.32.0
 
-replace validationpkg => ./ondc-validator/validationpkg
+replace validationpkg => ../validationpkg
 
 replace go.opentelemetry.io/otel => go.opentelemetry.io/otel v1.38.0
 
