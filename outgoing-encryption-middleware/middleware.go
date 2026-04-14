@@ -65,6 +65,8 @@ func (w *OutgoingEncryptionWrapper) Wrap(base http.RoundTripper) http.RoundTripp
 type becknContext struct {
 	Context struct {
 		Domain string `json:"domain"`
+		BppID  string `json:"bpp_id"`
+		BapID  string `json:"bap_id"`
 	} `json:"context"`
 }
 
@@ -100,15 +102,6 @@ func (t *OutgoingEncryptionTransport) RoundTrip(req *http.Request) (*http.Respon
 
 	log.Infof(ctx, "outgoing-encryption-middleware: encryption_validation=true, encrypting body after signing")
 
-	// Read subscriber_id cookie — the target NP subscriber ID.
-	subscriberCookie, subErr := req.Cookie("subscriber_id")
-	if subErr != nil || strings.TrimSpace(subscriberCookie.Value) == "" {
-		log.Errorf(ctx, fmt.Errorf("subscriber_id cookie missing or empty"),
-			"outgoing-encryption-middleware: cannot determine target NP subscriber ID")
-		return nil, fmt.Errorf("outgoing-encryption-middleware: subscriber_id cookie missing for outgoing encryption")
-	}
-	subscriberID := subscriberCookie.Value
-
 	// Read the body — at this point the Signer has already signed the plaintext body
 	// and written the Authorization header. The body is still the plaintext JSON.
 	bodyBytes, err := io.ReadAll(req.Body)
@@ -119,7 +112,9 @@ func (t *OutgoingEncryptionTransport) RoundTrip(req *http.Request) (*http.Respon
 	// Restore body so base transport can re-read if needed (will be replaced below).
 	req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-	// Extract context.domain from the outgoing ONDC payload body.
+	// Extract context.domain and target NP subscriber ID from the outgoing ONDC payload body.
+	// For outgoing encryption we need the RECEIVER's encr_public_key, not our own.
+	// The receiver is context.bpp_id (when caller is BAP sending to BPP).
 	var payload becknContext
 	if jsonErr := json.Unmarshal(bodyBytes, &payload); jsonErr != nil {
 		log.Errorf(ctx, jsonErr, "outgoing-encryption-middleware: failed to parse request body for domain")
@@ -131,7 +126,23 @@ func (t *OutgoingEncryptionTransport) RoundTrip(req *http.Request) (*http.Respon
 			"outgoing-encryption-middleware: cannot determine domain for registry lookup")
 		return nil, fmt.Errorf("outgoing-encryption-middleware: context.domain is empty in request body")
 	}
-	log.Infof(ctx, "outgoing-encryption-middleware: using subscriber_id=%s domain=%s for registry lookup", subscriberID, domain)
+
+	// Use bpp_id as the target subscriber ID (mockTxnCaller is BAP, sends to BPP).
+	// Fall back to bap_id if bpp_id is not present (e.g. reverse direction).
+	subscriberID := strings.TrimSpace(payload.Context.BppID)
+	if subscriberID == "" {
+		subscriberID = strings.TrimSpace(payload.Context.BapID)
+	}
+	if subscriberID == "" {
+		// Last resort: use subscriber_id cookie (our own ID)
+		subscriberCookie, subErr := req.Cookie("subscriber_id")
+		if subErr != nil || strings.TrimSpace(subscriberCookie.Value) == "" {
+			return nil, fmt.Errorf("outgoing-encryption-middleware: cannot determine target NP subscriber ID (bpp_id/bap_id empty and no cookie)")
+		}
+		subscriberID = subscriberCookie.Value
+		log.Infof(ctx, "outgoing-encryption-middleware: bpp_id/bap_id not in body, falling back to cookie subscriber_id=%s", subscriberID)
+	}
+	log.Infof(ctx, "outgoing-encryption-middleware: using subscriber_id=%s (target NP) domain=%s for registry lookup", subscriberID, domain)
 
 	// 1. Fetch target NP's encryption public key from ONDC registry using domain lookup.
 	signPubKey, encrPubKey, lookupErr := t.keyMgr.LookupNPKeysByDomain(ctx, subscriberID, domain)
