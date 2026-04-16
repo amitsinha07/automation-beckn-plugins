@@ -1,5 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Builds Go plugins (.so) into a specified directory
+#
+# Usage:
+#   ./buildplugins.sh [PLUGINS_DIR]
+#
+# Arguments:
+#   PLUGINS_DIR - Optional. Directory where plugins will be built (default: ./plugins)
+#
+# Examples:
+#   ./buildplugins.sh                          # Uses ./plugins
+#   ./buildplugins.sh /custom/path/plugins     # Uses /custom/path/plugins
+#   ./buildplugins.sh build-output/plugins     # Uses build-output/plugins
+#
+# Outputs:
+#   <PLUGINS_DIR>/ondcValidator.so
+#   <PLUGINS_DIR>/workbench.so
+#   <PLUGINS_DIR>/keymanager.so
+#   ... etc
+
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ $# -gt 0 && -n "$1" ]]; then
     PLUGINS_DIR="$1"
