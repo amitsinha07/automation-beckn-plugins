@@ -15,13 +15,14 @@ const (
 )
 
 type SessionDifficulty struct {
-	SensitiveTTL      bool `json:"sensitiveTTL"`
-	UseGateway        bool `json:"useGateway"`
-	StopAfterFirstNack bool `json:"stopAfterFirstNack"`
-	ProtocolValidations bool `json:"protocolValidations"`
-	TimeValidations   bool `json:"timeValidations"`
-	HeaderValidaton   bool `json:"headerValidaton"`
-	UseGzip           bool `json:"useGzip"`
+	SensitiveTTL         bool `json:"sensitiveTTL"`
+	UseGateway           bool `json:"useGateway"`
+	StopAfterFirstNack   bool `json:"stopAfterFirstNack"`
+	ProtocolValidations  bool `json:"protocolValidations"`
+	TimeValidations      bool `json:"timeValidations"`
+	HeaderValidaton      bool `json:"headerValidaton"`
+	UseGzip              bool `json:"useGzip"`
+	EncryptionValidation bool `json:"encryptionValidation"`
 }
 
 type Expectation struct {

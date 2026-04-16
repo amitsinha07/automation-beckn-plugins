@@ -149,3 +149,5 @@ beckn-adapter
 .env
 .env.*
 test_request.json
+analysis_results.md
+./buildplugins.sh

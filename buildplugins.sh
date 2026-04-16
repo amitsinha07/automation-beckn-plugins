@@ -20,55 +20,31 @@ set -euo pipefail
 #   <PLUGINS_DIR>/keymanager.so
 #   ... etc
 
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Accept plugins directory as first argument, or use default
 if [[ $# -gt 0 && -n "$1" ]]; then
-	PLUGINS_DIR="$1"
-	# Make it absolute if it's relative
-	if [[ "$PLUGINS_DIR" != /* ]]; then
-		PLUGINS_DIR="$ROOT_DIR/$PLUGINS_DIR"
-	fi
+    PLUGINS_DIR="$1"
+    if [[ "$PLUGINS_DIR" != /* ]]; then
+        PLUGINS_DIR="$ROOT_DIR/$PLUGINS_DIR"
+    fi
 else
-	PLUGINS_DIR="$ROOT_DIR/plugins"
+    PLUGINS_DIR="$ROOT_DIR/plugins"
 fi
-
 GO_BIN="${GO:-go}"
 TRIMPATH="${TRIMPATH:-0}"
-
 mkdir -p "$PLUGINS_DIR"
 
-echo "======================================"
-echo "Building Go Plugins"
-echo "======================================"
-echo "Output directory: $PLUGINS_DIR"
-echo "Go: $($GO_BIN version)"
-echo "Go env: GOOS=$($GO_BIN env GOOS) GOARCH=$($GO_BIN env GOARCH) GOROOT=$($GO_BIN env GOROOT)"
-echo "======================================"
-
-GOOS="$($GO_BIN env GOOS)"
-if [[ "$GOOS" == "windows" ]]; then
-	echo "❌ Go plugins (-buildmode=plugin) are not supported on Windows." >&2
-	exit 1
-fi
-
 build_plugin() {
-	local name="$1"
-	local module_dir="$2"
-	local pkg="$3"
-	local out="$PLUGINS_DIR/${name}.so"
-
-	echo "==> Building ${name}.so from ${module_dir} (${pkg})"
-	# IMPORTANT: Go plugins require the host binary and plugin to be built with the *same* toolchain
-	# and the *same* relevant build flags. Using -trimpath only for plugins is a common cause of:
-	#   "plugin was built with a different version of package runtime"
-	# Enable TRIMPATH=1 only if you also build the host with -trimpath.
-	if [[ "$TRIMPATH" == "1" ]]; then
-		( cd "$ROOT_DIR/$module_dir" && "$GO_BIN" build -buildmode=plugin -trimpath -o "$out" "$pkg" )
-	else
-		( cd "$ROOT_DIR/$module_dir" && "$GO_BIN" build -buildmode=plugin -o "$out" "$pkg" )
-	fi
-	echo "    ✓ Wrote: $out"
+    local name="$1"
+    local module_dir="$2"
+    local pkg="$3"
+    local out="$PLUGINS_DIR/${name}.so"
+    echo "==> Building ${name}.so from ${module_dir}"
+    if [[ "$TRIMPATH" == "1" ]]; then
+        ( cd "$ROOT_DIR/$module_dir" && "$GO_BIN" build -buildmode=plugin -trimpath -o "$out" "$pkg" )
+    else
+        ( cd "$ROOT_DIR/$module_dir" && "$GO_BIN" build -buildmode=plugin -o "$out" "$pkg" )
+    fi
 }
 
 build_plugin "ondcvalidator" "ondc-validator" "./cmd"
@@ -80,7 +56,7 @@ build_plugin "router" "router" "./cmd"
 build_plugin "schemavalidator" "schemavalidator" "./cmd"
 build_plugin "signvalidator" "signvalidator" "./cmd"
 build_plugin "signer" "signer" "./cmd"
+build_plugin "encryptionmiddleware" "encryption-middleware" "./cmd"
+build_plugin "outgoingencryptionmiddleware" "outgoing-encryption-middleware" "./cmd"
 
-echo "======================================"
 echo "✅ Done! Plugins are in: $PLUGINS_DIR"
-echo "======================================"

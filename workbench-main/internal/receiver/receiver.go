@@ -163,13 +163,14 @@ func (r *WorkbenchRequestReceiver) handleTransactionWhichExits(
 
 func (r *WorkbenchRequestReceiver) defaultDifficulty() cache.SessionDifficulty {
 	return cache.SessionDifficulty{
-		SensitiveTTL:        true,
-		UseGateway:          true,
-		StopAfterFirstNack:  false,
-		ProtocolValidations: true,
-		TimeValidations:     true,
-		HeaderValidaton:     true,
-		UseGzip:             false,
+		SensitiveTTL:         true,
+		UseGateway:           true,
+		StopAfterFirstNack:   false,
+		ProtocolValidations:  true,
+		TimeValidations:      true,
+		HeaderValidaton:      true,
+		UseGzip:              false,
+		EncryptionValidation: false, // opt-in — must be explicitly enabled per session
 	}
 }
 
