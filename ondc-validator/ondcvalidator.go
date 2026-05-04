@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"validationpkg"
@@ -20,6 +21,9 @@ import (
 type payloadEnvelope struct {
 	Context struct {
 		TransactionID string `json:"transaction_id"`
+		Domain        string `json:"domain"`
+		Version       string `json:"version"`
+		CoreVersion   string `json:"core_version"`
 	}
 }
 
@@ -36,7 +40,7 @@ type ondcValidator struct {
 
 func (v *ondcValidator) ValidatePayload(ctx context.Context, url *url.URL, payload []byte) error {
 	log.Infof(ctx,"Starting L1 validation for URL: %s", url.String())
-	payloadData, uniqueKey, err := convertToPayload(payload)
+	payloadData, uniqueKey, env, err := convertToPayload(payload)
 	if err != nil {
 		return fmt.Errorf("invalid payload: %w", err)
 	}
@@ -65,13 +69,28 @@ func (v *ondcValidator) ValidatePayload(ctx context.Context, url *url.URL, paylo
 		}
 
 		var ondcErrors []model.Error
-		for _, res := range result { 
+		for _, res := range result {
 			ondcErrors = append(ondcErrors, model.Error{
 				Code:        strconv.Itoa(res.Code),
 				Message:     res.Description,
 				Paths: "",
 			})
 		}
+
+		subscriberID := os.Getenv("SUBSCRIBER_ID")
+		if subscriberID == "" {
+			subscriberID = "workbench.ondc.tech"
+		}
+		version := env.Context.Version
+		if version == "" {
+			version = env.Context.CoreVersion
+		}
+		docURL := fmt.Sprintf("https://%s/validations/developer-guide/%s/%s", subscriberID, env.Context.Domain, version)
+		ondcErrors = append(ondcErrors, model.Error{
+			Code:    "",
+			Message: fmt.Sprintf("for full list of validations refer %s", docURL),
+			Paths:   "",
+		})
 		return &model.SchemaValidationErr{Errors: ondcErrors}
 	}
 	log.Infof(ctx,"L1 validation successful for URL: %s", url.String())
@@ -79,7 +98,7 @@ func (v *ondcValidator) ValidatePayload(ctx context.Context, url *url.URL, paylo
 }
 
 func (v *ondcValidator) SaveValidationData(ctx context.Context, url *url.URL, payload []byte) error {
-	payloadData,uniqueKey, err := convertToPayload(payload)
+	payloadData, uniqueKey, _, err := convertToPayload(payload)
 	if err != nil {
 		return fmt.Errorf("invalid payload: %w", err)
 	}
@@ -103,24 +122,25 @@ func New(ctx context.Context, cache definition.Cache, config *Config) (definitio
 // convertToPayload returns:
 // 1) the full JSON payload as an object usable by JSONPath (map/slice)
 // 2) transaction_id (for uniqueKey)
-// 3) error
-func convertToPayload(data []byte) (interface{}, string, error) {
+// 3) parsed envelope (context fields)
+// 4) error
+func convertToPayload(data []byte) (interface{}, string, payloadEnvelope, error) {
     // Full object for JSONPath validations
     var payloadObj interface{}
     if err := json.Unmarshal(data, &payloadObj); err != nil {
-        return nil, "", fmt.Errorf("failed to parse JSON payload: %w", err)
+        return nil, "", payloadEnvelope{}, fmt.Errorf("failed to parse JSON payload: %w", err)
     }
 
     // Minimal typed parse for transaction_id
     var env payloadEnvelope
     if err := json.Unmarshal(data, &env); err != nil {
-        return nil, "", fmt.Errorf("failed to parse payload envelope: %w", err)
+        return nil, "", payloadEnvelope{}, fmt.Errorf("failed to parse payload envelope: %w", err)
     }
     if env.Context.TransactionID == "" {
-        return nil, "", fmt.Errorf("transaction_id is missing in context")
+        return nil, "", payloadEnvelope{}, fmt.Errorf("transaction_id is missing in context")
     }
 
-    return payloadObj, env.Context.TransactionID, nil
+    return payloadObj, env.Context.TransactionID, env, nil
 }
 
 
