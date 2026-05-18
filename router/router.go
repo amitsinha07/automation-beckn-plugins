@@ -28,7 +28,8 @@ type routingConfig struct {
 
 // Router implements Router interface.
 type Router struct {
-	rules map[string]map[string]map[string]*model.Route // domain -> version -> endpoint -> route
+	rules   map[string]map[string]map[string]*model.Route // domain -> version -> endpoint -> route
+	careURL *url.URL                                      // parsed CARE_URL; nil when not configured
 }
 
 // RoutingRule represents a single routing rule.
@@ -68,6 +69,14 @@ func New(ctx context.Context, config *Config) (*Router, func() error, error) {
 	}
 	router := &Router{
 		rules: make(map[string]map[string]map[string]*model.Route),
+	}
+
+	if careURLStr := strings.TrimSpace(os.Getenv("CARE_URL")); careURLStr != "" {
+		parsed, err := url.Parse(careURLStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid CARE_URL %q: %w", careURLStr, err)
+		}
+		router.careURL = parsed
 	}
 
 	// Load rules at bootup
@@ -245,6 +254,22 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 
 	// Extract the endpoint from the URL
 	endpoint := path.Base(url.Path)
+
+	// useCare override: route issue/on_issue to CARE_URL when the session has it enabled
+	if endpoint == "issue" || endpoint == "on_issue" {
+		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
+			if r.careURL == nil {
+				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
+			}
+			target := *r.careURL
+			target.Path = joinPath(&target, endpoint)
+			return &model.Route{
+				TargetType: targetTypeURL,
+				URL:        &target,
+				ActAsProxy: true,
+			}, nil
+		}
+	}
 
 	version := requestBody.Context.Version
 	if(version == ""){

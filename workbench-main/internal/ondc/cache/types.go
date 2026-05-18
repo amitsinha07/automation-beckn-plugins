@@ -23,6 +23,7 @@ type SessionDifficulty struct {
 	HeaderValidaton      bool `json:"headerValidaton"`
 	UseGzip              bool `json:"useGzip"`
 	EncryptionValidation bool `json:"encryptionValidation"`
+	UseCare              bool `json:"useCare"`
 }
 
 type Expectation struct {
