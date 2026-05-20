@@ -86,6 +86,9 @@ func New(ctx context.Context, config *Config) (*Router, func() error, error) {
 			return nil, nil, fmt.Errorf("invalid FIS_TUNNEL_URL %q: %w", fisTunnelURLStr, err)
 		}
 		router.fisTunnelURL = parsed
+		fmt.Printf("[use_tunnel_for_fis] FIS_TUNNEL_URL configured: %s\n", parsed.String())
+	} else {
+		fmt.Printf("[use_tunnel_for_fis] FIS_TUNNEL_URL not set\n")
 	}
 
 	// Load rules at bootup
@@ -281,17 +284,24 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 	}
 
 	// useTunnelForFis override: route to FIS_TUNNEL_URL when the session has it enabled
-	if c, err := request.Cookie("use_tunnel_for_fis"); err == nil && c.Value == "true" {
-		if r.fisTunnelURL == nil {
-			return nil, fmt.Errorf("use_tunnel_for_fis enabled but FIS_TUNNEL_URL not configured")
+	if c, err := request.Cookie("use_tunnel_for_fis"); err == nil {
+		fmt.Printf("[use_tunnel_for_fis] cookie present value=%q endpoint=%s\n", c.Value, endpoint)
+		if c.Value == "true" {
+			if r.fisTunnelURL == nil {
+				fmt.Printf("[use_tunnel_for_fis] ERROR cookie=true but FIS_TUNNEL_URL not configured\n")
+				return nil, fmt.Errorf("use_tunnel_for_fis enabled but FIS_TUNNEL_URL not configured")
+			}
+			target := *r.fisTunnelURL
+			target.Path = joinPath(&target, endpoint)
+			fmt.Printf("[use_tunnel_for_fis] OVERRIDE endpoint=%s -> %s\n", endpoint, target.String())
+			return &model.Route{
+				TargetType: targetTypeURL,
+				URL:        &target,
+				ActAsProxy: true,
+			}, nil
 		}
-		target := *r.fisTunnelURL
-		target.Path = joinPath(&target, endpoint)
-		return &model.Route{
-			TargetType: targetTypeURL,
-			URL:        &target,
-			ActAsProxy: true,
-		}, nil
+	} else {
+		fmt.Printf("[use_tunnel_for_fis] cookie absent endpoint=%s err=%v\n", endpoint, err)
 	}
 
 	version := requestBody.Context.Version
