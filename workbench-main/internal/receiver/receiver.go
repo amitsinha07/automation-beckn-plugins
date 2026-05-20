@@ -172,6 +172,7 @@ func (r *WorkbenchRequestReceiver) defaultDifficulty() cache.SessionDifficulty {
 		UseGzip:              false,
 		EncryptionValidation: false, // opt-in — must be explicitly enabled per session
 		UseCare:              false, // opt-in — routes issue/on_issue to CARE_URL when true
+		UseTunnelForFIS:      false, // opt-in - routes everything to tunnel for FIS flows when true
 	}
 }
 

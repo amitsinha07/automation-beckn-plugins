@@ -89,6 +89,10 @@ func setRequestCookies(requestData *apiservice.WorkbenchRequestData) error {
 		Value: getBooleanString(requestData.Difficulty.UseCare),
 	})
 	httpReq.AddCookie(&http.Cookie{
+		Name: "use_tunnel_for_fis",
+		Value: getBooleanString(requestData.Difficulty.UseTunnelForFIS),
+	})
+	httpReq.AddCookie(&http.Cookie{
 		Name: "request_owner",
 		Value: string(requestData.RequestOwner),
 	})

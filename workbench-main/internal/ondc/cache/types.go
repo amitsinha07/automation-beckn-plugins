@@ -24,6 +24,7 @@ type SessionDifficulty struct {
 	UseGzip              bool `json:"useGzip"`
 	EncryptionValidation bool `json:"encryptionValidation"`
 	UseCare              bool `json:"useCare"`
+	UseTunnelForFIS	 	 bool `json:"useTunnelForFIS"`
 }
 
 type Expectation struct {

@@ -28,8 +28,9 @@ type routingConfig struct {
 
 // Router implements Router interface.
 type Router struct {
-	rules   map[string]map[string]map[string]*model.Route // domain -> version -> endpoint -> route
-	careURL *url.URL                                      // parsed CARE_URL; nil when not configured
+	rules        map[string]map[string]map[string]*model.Route // domain -> version -> endpoint -> route
+	careURL      *url.URL                                      // parsed CARE_URL; nil when not configured
+	fisTunnelURL *url.URL                                      // parsed FIS_TUNNEL_URL; nil when not configured
 }
 
 // RoutingRule represents a single routing rule.
@@ -77,6 +78,14 @@ func New(ctx context.Context, config *Config) (*Router, func() error, error) {
 			return nil, nil, fmt.Errorf("invalid CARE_URL %q: %w", careURLStr, err)
 		}
 		router.careURL = parsed
+	}
+
+	if fisTunnelURLStr := strings.TrimSpace(os.Getenv("FIS_TUNNEL_URL")); fisTunnelURLStr != "" {
+		parsed, err := url.Parse(fisTunnelURLStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid FIS_TUNNEL_URL %q: %w", fisTunnelURLStr, err)
+		}
+		router.fisTunnelURL = parsed
 	}
 
 	// Load rules at bootup
@@ -269,6 +278,20 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 				ActAsProxy: true,
 			}, nil
 		}
+	}
+
+	// useTunnelForFis override: route to FIS_TUNNEL_URL when the session has it enabled
+	if c, err := request.Cookie("use_tunnel_for_fis"); err == nil && c.Value == "true" {
+		if r.fisTunnelURL == nil {
+			return nil, fmt.Errorf("use_tunnel_for_fis enabled but FIS_TUNNEL_URL not configured")
+		}
+		target := *r.fisTunnelURL
+		target.Path = joinPath(&target, endpoint)
+		return &model.Route{
+			TargetType: targetTypeURL,
+			URL:        &target,
+			ActAsProxy: true,
+		}, nil
 	}
 
 	version := requestBody.Context.Version
