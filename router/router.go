@@ -267,19 +267,31 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 	// Extract the endpoint from the URL
 	endpoint := path.Base(url.Path)
 
-	// useCare override: route issue/on_issue to CARE_URL when the session has it enabled
-	if endpoint == "issue" || endpoint == "on_issue" {
+	// useCare override: route to CARE_URL only for outgoing requests.
+	// Outgoing is determined by the request_owner cookie set by WorkbenchReceiver:
+	//   buyer side (buyer_np / buyer_mock) + issue     → outgoing for buyer
+	//   seller side (seller_np / seller_mock) + on_issue → outgoing for seller
+	if request != nil {
 		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
-			if r.careURL == nil {
-				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
+			owner := ""
+			if oc, err := request.Cookie("request_owner"); err == nil {
+				owner = oc.Value
 			}
-			target := *r.careURL
-			target.Path = joinPath(&target, endpoint)
-			return &model.Route{
-				TargetType: targetTypeURL,
-				URL:        &target,
-				ActAsProxy: true,
-			}, nil
+			isBuyer := owner == "buyer_np" || owner == "buyer_mock"
+			isSeller := owner == "seller_np" || owner == "seller_mock"
+			isOutgoing := (isBuyer && endpoint == "issue") || (isSeller && endpoint == "on_issue")
+			if isOutgoing {
+				if r.careURL == nil {
+					return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
+				}
+				target := *r.careURL
+				target.Path = joinPath(&target, endpoint)
+				return &model.Route{
+					TargetType: targetTypeURL,
+					URL:        &target,
+					ActAsProxy: true,
+				}, nil
+			}
 		}
 	}
 
