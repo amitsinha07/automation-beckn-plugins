@@ -267,34 +267,6 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 	// Extract the endpoint from the URL
 	endpoint := path.Base(url.Path)
 
-	// useCare override: route to CARE_URL only for outgoing requests.
-	// Outgoing is determined by the request_owner cookie set by WorkbenchReceiver:
-	//   buyer side (buyer_np / buyer_mock) + issue     → outgoing for buyer
-	//   seller side (seller_np / seller_mock) + on_issue → outgoing for seller
-	if request != nil {
-		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
-			owner := ""
-			if oc, err := request.Cookie("request_owner"); err == nil {
-				owner = oc.Value
-			}
-			isBuyer := owner == "buyer_np" || owner == "buyer_mock"
-			isSeller := owner == "seller_np" || owner == "seller_mock"
-			isOutgoing := (isBuyer && endpoint == "issue") || (isSeller && endpoint == "on_issue")
-			if isOutgoing {
-				if r.careURL == nil {
-					return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
-				}
-				target := *r.careURL
-				target.Path = joinPath(&target, endpoint)
-				return &model.Route{
-					TargetType: targetTypeURL,
-					URL:        &target,
-					ActAsProxy: true,
-				}, nil
-			}
-		}
-	}
-
 	version := requestBody.Context.Version
 	if(version == ""){
 		version = requestBody.Context.CoreVersion
@@ -330,6 +302,23 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 		}
 		return nil, fmt.Errorf("endpoint '%s' is not supported for domain %s and version %s in routing config",
 			endpoint, requestBody.Context.Domain, version)
+	}
+
+	// useCare override: route to CARE_URL when the session has it
+	// enabled AND the matched route acts as a proxy.
+	if request != nil && route.ActAsProxy {
+		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
+			if r.careURL == nil {
+				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
+			}
+			target := *r.careURL
+			target.Path = joinPath(&target, endpoint)
+			return &model.Route{
+				TargetType: targetTypeURL,
+				URL:        &target,
+				ActAsProxy: true,
+			}, nil
+		}
 	}
 
 	// useTunnelForFis override: route to FIS_TUNNEL_URL when the session has it
