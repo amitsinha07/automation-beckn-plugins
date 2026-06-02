@@ -267,22 +267,6 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 	// Extract the endpoint from the URL
 	endpoint := path.Base(url.Path)
 
-	// useCare override: route issue/on_issue to CARE_URL when the session has it enabled
-	if endpoint == "issue" || endpoint == "on_issue" {
-		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
-			if r.careURL == nil {
-				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
-			}
-			target := *r.careURL
-			target.Path = joinPath(&target, endpoint)
-			return &model.Route{
-				TargetType: targetTypeURL,
-				URL:        &target,
-				ActAsProxy: true,
-			}, nil
-		}
-	}
-
 	version := requestBody.Context.Version
 	if(version == ""){
 		version = requestBody.Context.CoreVersion
@@ -318,6 +302,23 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 		}
 		return nil, fmt.Errorf("endpoint '%s' is not supported for domain %s and version %s in routing config",
 			endpoint, requestBody.Context.Domain, version)
+	}
+
+	// useCare override: route to CARE_URL when the session has it
+	// enabled AND the matched route acts as a proxy.
+	if request != nil && route.ActAsProxy {
+		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
+			if r.careURL == nil {
+				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
+			}
+			target := *r.careURL
+			target.Path = joinPath(&target, endpoint)
+			return &model.Route{
+				TargetType: targetTypeURL,
+				URL:        &target,
+				ActAsProxy: true,
+			}, nil
+		}
 	}
 
 	// useTunnelForFis override: route to FIS_TUNNEL_URL when the session has it
