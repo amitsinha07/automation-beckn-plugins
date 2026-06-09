@@ -304,9 +304,9 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 			endpoint, requestBody.Context.Domain, version)
 	}
 
-	// useCare override: route to CARE_URL when the session has it
-	// enabled AND the matched route acts as a proxy.
-	if request != nil && route.ActAsProxy {
+	// useCare override: route to CARE_URL only for issue and on_issue endpoints
+	// when the session has use_care enabled AND the matched route acts as a proxy.
+	if request != nil && route.ActAsProxy && (endpoint == "issue" || endpoint == "on_issue") {
 		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
 			if r.careURL == nil {
 				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
