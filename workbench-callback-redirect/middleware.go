@@ -62,6 +62,13 @@ func (m *CallbackRedirect) handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// 0. GET-only: the callback is browser-navigated, so reject any other method.
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		// 1. Derive our own subscriberUrl from the callback's own URL
 		//    ({subscriberUrl}/callback). X-Forwarded-* first so it works behind a proxy.
 		proto := firstNonEmpty(r.Header.Get("X-Forwarded-Proto"), schemeOf(r))

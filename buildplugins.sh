@@ -58,7 +58,6 @@ build_plugin "signvalidator" "signvalidator" "./cmd"
 build_plugin "signer" "signer" "./cmd"
 build_plugin "encryptionmiddleware" "encryption-middleware" "./cmd"
 build_plugin "outgoingencryptionmiddleware" "outgoing-encryption-middleware" "./cmd"
-build_plugin "callbackreceiver" "workbench-callback" "./cmd"
 build_plugin "callbackredirect" "workbench-callback-redirect" "./cmd"
 
 echo "✅ Done! Plugins are in: $PLUGINS_DIR"
