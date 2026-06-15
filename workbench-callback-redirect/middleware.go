@@ -71,7 +71,10 @@ func (m *CallbackRedirect) handler(next http.Handler) http.Handler {
 
 		// 1. Derive our own subscriberUrl from the callback's own URL
 		//    ({subscriberUrl}/callback). X-Forwarded-* first so it works behind a proxy.
-		proto := firstNonEmpty(r.Header.Get("X-Forwarded-Proto"), schemeOf(r))
+		//    Default scheme is https: the public callback URL is always https, and
+		//    behind a TLS-terminating proxy r.TLS is nil, so http would mismatch the
+		//    stored https key.
+		proto := firstNonEmpty(r.Header.Get("X-Forwarded-Proto"), "https")
 		host := firstNonEmpty(r.Header.Get("X-Forwarded-Host"), r.Host)
 		own := fmt.Sprintf("%s://%s%s", proto, host, r.URL.Path)
 		subscriberURL := strings.TrimSuffix(strings.TrimRight(own, "/"), "/callback")
@@ -124,11 +127,4 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
-}
-
-func schemeOf(r *http.Request) string {
-	if r.TLS != nil {
-		return "https"
-	}
-	return "http"
 }
