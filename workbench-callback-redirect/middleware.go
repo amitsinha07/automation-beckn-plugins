@@ -16,19 +16,22 @@ import (
 
 // Key prefixes and TTL form a cross-service contract with the automation-frontend
 // backend and the Node api-service callbackController — keep in sync.
-//   redirection_url:{subscriberUrl} -> full workbench URL (written by frontend backend)
-//   form_completed:{sessionId}      -> completion payload  (written here)
+//   redirection_url:{subscriberPath} -> full workbench URL (written by frontend backend)
+//   form_completed:{sessionId}        -> completion payload  (written here)
+// The subscriberPath is the URL pathname (e.g. /api-service/ONDC:FIS12/2.3.0/buyer),
+// NOT the full URL — so the key is independent of host/scheme and the reverse proxy.
 const (
 	formCompletedPrefix  = "form_completed"
 	redirectionURLPrefix = "redirection_url"
+	apiServiceAnchor     = "/api-service/"
 	completionTTL        = 3600 * time.Second
 )
 
-// CallbackRedirect is a middleware for the public GET /callback. It derives its
-// own subscriberUrl from the request, looks up the workbench URL the frontend
-// stored under redirection_url:{subscriberUrl}, extracts sessionId from that URL,
-// writes form_completed:{sessionId}, and issues an immediate HTTP 302 redirect
-// back to the workbench. It never calls next — the request ends at the redirect.
+// CallbackRedirect is a middleware for the public GET /callback. It derives a
+// path-only lookup key from the request URL (nginx-independent), looks up the
+// workbench URL the frontend stored under redirection_url:{subscriberPath},
+// extracts sessionId from that URL, writes form_completed:{sessionId}, and issues
+// an immediate HTTP 302 redirect back to the workbench. It never calls next.
 type CallbackRedirect struct {
 	redis *redis.Client
 	ttl   time.Duration
@@ -69,20 +72,22 @@ func (m *CallbackRedirect) handler(next http.Handler) http.Handler {
 			return
 		}
 
-		// 1. Derive our own subscriberUrl from the callback's own URL
-		//    ({subscriberUrl}/callback). X-Forwarded-* first so it works behind a proxy.
-		//    Default scheme is https: the public callback URL is always https, and
-		//    behind a TLS-terminating proxy r.TLS is nil, so http would mismatch the
-		//    stored https key.
-		proto := firstNonEmpty(r.Header.Get("X-Forwarded-Proto"), "https")
-		host := firstNonEmpty(r.Header.Get("X-Forwarded-Host"), r.Host)
-		own := fmt.Sprintf("%s://%s%s", proto, host, r.URL.Path)
-		subscriberURL := strings.TrimSuffix(strings.TrimRight(own, "/"), "/callback")
+		// 1. Derive the lookup key from the request PATH only — nginx-independent.
+		//    The path arrives in the request line (unlike the optional X-Forwarded-*
+		//    headers a proxy may drop), so we never touch host/scheme. We anchor on
+		//    "/api-service/" so any leading prefix a proxy might add is ignored, then
+		//    strip the trailing "/callback". Result e.g.:
+		//      /api-service/ONDC:FIS12/2.3.0/buyer
+		subscriberPath := r.URL.Path
+		if i := strings.Index(subscriberPath, apiServiceAnchor); i >= 0 {
+			subscriberPath = subscriberPath[i:]
+		}
+		subscriberPath = strings.TrimSuffix(strings.TrimRight(subscriberPath, "/"), "/callback")
 
 		// 2. Look up the stored workbench URL
-		redirectURL, err := m.redis.Get(ctx, fmt.Sprintf("%s:%s", redirectionURLPrefix, subscriberURL)).Result()
+		redirectURL, err := m.redis.Get(ctx, fmt.Sprintf("%s:%s", redirectionURLPrefix, subscriberPath)).Result()
 		if err != nil || redirectURL == "" {
-			log.Warnf(ctx, "callback-redirect: no redirection URL for subscriber %s", subscriberURL)
+			log.Warnf(ctx, "callback-redirect: no redirection URL for path %s", subscriberPath)
 			http.Error(w, "No redirection URL found for this subscriber.", http.StatusNotFound)
 			return
 		}
@@ -120,11 +125,4 @@ func (m *CallbackRedirect) handler(next http.Handler) http.Handler {
 		// 6. Immediate HTTP 302 — do NOT call next; the request ends here.
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 	})
-}
-
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
