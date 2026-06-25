@@ -38,7 +38,7 @@ func (v *validator) Validate(ctx context.Context, body []byte, header string, pu
 
 	signatureBytes, err := base64.StdEncoding.DecodeString(signature)
 	if err != nil {
-		return fmt.Errorf("error decoding signature: %w", err)
+		return model.NewSignValidationErr(fmt.Errorf("error decoding signature: %w", err))
 	}
 
 	currentTime := time.Now().Unix()
@@ -46,21 +46,48 @@ func (v *validator) Validate(ctx context.Context, body []byte, header string, pu
 		return model.NewSignValidationErr(fmt.Errorf("signature is expired or not yet valid"))
 	}
 
-	createdTime := time.Unix(createdTimestamp, 0)
-	expiredTime := time.Unix(expiredTimestamp, 0)
-
-	signingString := hash(body, createdTime.Unix(), expiredTime.Unix())
-
 	decodedPublicKey, err := base64.StdEncoding.DecodeString(publicKeyBase64)
 	if err != nil {
 		return model.NewSignValidationErr(fmt.Errorf("error decoding public key: %w", err))
 	}
-
-	if !ed25519.Verify(ed25519.PublicKey(decodedPublicKey), []byte(signingString), signatureBytes) {
-		return model.NewSignValidationErr(fmt.Errorf("signature verification failed"))
+	if len(decodedPublicKey) != ed25519.PublicKeySize {
+		return model.NewSignValidationErr(fmt.Errorf("invalid public key length: %d", len(decodedPublicKey)))
 	}
 
-	return nil
+	// Primary path: the sender stringified the body before signing (correct
+	// usage). Verify the signature against the actual request body.
+	if verifySignature(decodedPublicKey, body, createdTimestamp, expiredTimestamp, signatureBytes) {
+		return nil
+	}
+
+	// Fallback: some senders do NOT stringify the body before signing. In
+	// Node.js, passing an object to sodium.from_string coerces it to the literal
+	// string "[object Object]", so the digest is computed over that constant
+	// instead of the JSON body. Accept such headers by verifying against the same
+	// constant.
+	//
+	// WARNING: requests accepted via this fallback are NOT integrity-protected —
+	// the signature does not cover the actual body content. This exists only to
+	// interoperate with a known-broken signer; remove it once the signer is fixed
+	// to sign JSON.stringify(body).
+	if verifySignature(decodedPublicKey, []byte(objectObjectLiteral), createdTimestamp, expiredTimestamp, signatureBytes) {
+		fmt.Printf("WARN signvalidator: signature verified via [object Object] fallback; request body integrity NOT verified\n")
+		return nil
+	}
+
+	return model.NewSignValidationErr(fmt.Errorf("signature verification failed"))
+}
+
+// objectObjectLiteral is the JavaScript string coercion of a non-stringified
+// object (String({}) === "[object Object]"). A sender that signs an object
+// instead of JSON.stringify(object) ends up signing the digest of this constant.
+const objectObjectLiteral = "[object Object]"
+
+// verifySignature reconstructs the signing string for the given payload and
+// checks the Ed25519 signature against it.
+func verifySignature(publicKey ed25519.PublicKey, payload []byte, created, expired int64, signature []byte) bool {
+	signingString := hash(payload, created, expired)
+	return ed25519.Verify(publicKey, []byte(signingString), signature)
 }
 
 // parseAuthHeader extracts signature values from the Authorization header.

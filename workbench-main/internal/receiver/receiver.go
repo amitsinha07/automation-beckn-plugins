@@ -164,7 +164,7 @@ func (r *WorkbenchRequestReceiver) handleTransactionWhichExits(
 func (r *WorkbenchRequestReceiver) defaultDifficulty() cache.SessionDifficulty {
 	return cache.SessionDifficulty{
 		SensitiveTTL:         true,
-		UseGateway:           true,
+		UseGateway:           true, // routes search to GATEWAY_URL when true
 		StopAfterFirstNack:   false,
 		ProtocolValidations:  true,
 		TimeValidations:      true,
