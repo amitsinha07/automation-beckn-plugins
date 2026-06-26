@@ -31,6 +31,7 @@ type Router struct {
 	rules        map[string]map[string]map[string]*model.Route // domain -> version -> endpoint -> route
 	careURL      *url.URL                                      // parsed CARE_URL; nil when not configured
 	fisTunnelURL *url.URL                                      // parsed FIS_TUNNEL_URL; nil when not configured
+	gatewayURL   *url.URL                                      // parsed GATEWAY_URL; nil when not configured
 }
 
 // RoutingRule represents a single routing rule.
@@ -89,6 +90,17 @@ func New(ctx context.Context, config *Config) (*Router, func() error, error) {
 		fmt.Printf("[use_tunnel_for_fis] FIS_TUNNEL_URL configured: %s\n", parsed.String())
 	} else {
 		fmt.Printf("[use_tunnel_for_fis] FIS_TUNNEL_URL not set\n")
+	}
+
+	if gatewayURLStr := strings.TrimSpace(os.Getenv("GATEWAY_URL")); gatewayURLStr != "" {
+		parsed, err := url.Parse(gatewayURLStr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid GATEWAY_URL %q: %w", gatewayURLStr, err)
+		}
+		router.gatewayURL = parsed
+		fmt.Printf("[use_gateway] GATEWAY_URL configured: %s\n", parsed.String())
+	} else {
+		fmt.Printf("[use_gateway] GATEWAY_URL not set\n")
 	}
 
 	// Load rules at bootup
@@ -312,6 +324,25 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
 			}
 			target := *r.careURL
+			target.Path = joinPath(&target, endpoint)
+			return &model.Route{
+				TargetType: targetTypeURL,
+				URL:        &target,
+				ActAsProxy: true,
+			}, nil
+		}
+	}
+
+	// useGateway override: route to GATEWAY_URL only for the search endpoint
+	// when the session has use_gateway enabled AND the matched route acts as a proxy.
+	// Checked before use_tunnel_for_fis so the search-specific rule wins over the
+	// catch-all tunnel override.
+	if request != nil && route.ActAsProxy && endpoint == "search" {
+		if c, err := request.Cookie("use_gateway"); err == nil && c.Value == "true" {
+			if r.gatewayURL == nil {
+				return nil, fmt.Errorf("use_gateway enabled but GATEWAY_URL not configured")
+			}
+			target := *r.gatewayURL
 			target.Path = joinPath(&target, endpoint)
 			return &model.Route{
 				TargetType: targetTypeURL,
